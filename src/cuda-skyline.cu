@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * omp-skyline.c - OpenMP implementaiton of the skyline operator
+ * cuda-skyline.cu - Cuda implementaiton of the skyline operator
  *
  * Copyright (C) 2024 Andrea Baldazzi
  *
@@ -25,11 +25,11 @@
  *
  * Per compilare:
  *
- *      gcc -std=c99 -Wall -Wpedantic -O2 omp-skyline.c -o omp-skyline
+ *      nvcc -Wno-deprecated-gpu-targets cuda-skyline.cu -o cuda-skyline -lm
  *
  * Per eseguire il programma:
  *
- *      ./omp-skyline < input > output
+ *      ./cuda-skyline < input > output
  *
  ****************************************************************************/
 
@@ -42,6 +42,9 @@
 #include <assert.h>
 
 #include "hpc.h"
+
+#define BLKDIM_1D 1024
+#define BLKDIM_2D 32
 
 typedef struct
 {
@@ -109,7 +112,7 @@ void free_points(points_t *points)
 }
 
 /* Returns 1 if |p| dominates |q| */
-int dominates(const float *p, const float *q, int D)
+__device__ int dominates(const float *p, const float *q, int D)
 {
     /* The following loops could be merged, but the keep them separated
        for the sake of readability */
@@ -130,6 +133,71 @@ int dominates(const float *p, const float *q, int D)
     return 0;
 }
 
+__global__ void skyline_kernel_1d(float *d_P, int *d_s, int *d_r, int N, int D)
+{
+    const int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (idx < N)
+    {
+        d_s[idx] = 1;
+        __syncthreads();
+
+        for (int j = 0; j < N; j++)
+        {
+            if (dominates(&(d_P[j * D]), &(d_P[idx * D]), D))
+            {
+                d_s[idx] = 0;
+                j = N; // Force loop exit
+                atomicSub(d_r, 1);
+            }
+        }
+    }
+}
+
+__global__ void init_kernel(int *d_s, int N)
+{
+    const int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (idx < N)
+    {
+        d_s[idx] = 1;
+    }
+}
+
+__global__ void skyline_kernel(float *d_P, int *d_s, int N, int D)
+{
+    const int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    const int idy = threadIdx.y + blockIdx.y * blockDim.y;
+    if (idx < N && idy < N)
+    {
+        if (dominates(&(d_P[idy * D]), &(d_P[idx * D]), D))
+        {
+            atomicExch(&d_s[idx], 0);
+        }
+    }
+}
+
+__global__ void sum_kernel(int *d_s, int *d_r, int N)
+{
+    __shared__ int temp[BLKDIM_1D];
+    const int gindex = threadIdx.x + blockIdx.x * blockDim.x;
+    const int lindex = threadIdx.x;
+    int bsize = blockDim.x / 2;
+    temp[lindex] = (gindex < N) ? d_s[gindex] : 0;
+    __syncthreads();
+    while (bsize > 0)
+    {
+        if (lindex < bsize)
+        {
+            temp[lindex] += temp[lindex + bsize];
+        }
+        bsize /= 2;
+        __syncthreads();
+    }
+    if (lindex == 0)
+    {
+        atomicAdd(d_r, temp[lindex]);
+    }
+}
+
 /**
  * Compute the skyline of `points`. At the end, `s[i] == 1` iff point
  * `i` belongs to the skyline. The function returns the number `r` of
@@ -141,34 +209,37 @@ int skyline(const points_t *points, int *s)
     const int D = points->D;
     const int N = points->N;
     const float *P = points->P;
-    int r = N;
+    int r = 0;
 
-// #pragma omp parallel for default(none) shared(s, N)
-#pragma omp parallel default(none) shared(s, N, D, P, r)
-    {
-#pragma omp for
-        for (int i = 0; i < N; i++)
-        {
-            s[i] = 1;
-        }
+    dim3 block_1d(BLKDIM_1D);
+    dim3 grid_1d((N + BLKDIM_1D - 1) / BLKDIM_1D);
+    dim3 block_2d(BLKDIM_2D, BLKDIM_2D);
+    dim3 grid_2d((N + BLKDIM_2D - 1) / BLKDIM_2D, (N + BLKDIM_2D - 1) / BLKDIM_2D);
 
-        for (int i = 0; i < N; i++)
-        {
-            if (s[i])
-            {
-#pragma omp for reduction(+ : r)
-                for (int j = 0; j < N; j++)
-                {
-                    if (s[j] && dominates(&(P[i * D]), &(P[j * D]), D))
-                    {
-                        s[j] = 0;
-                        r--;
-                    }
-                }
-            }
-        }
-    }
-    
+    int *d_s, *d_r;
+    float *d_P;
+    cudaSafeCall(cudaMalloc((void **)&d_s, N * sizeof(s[0])));
+    cudaSafeCall(cudaMalloc((void **)&d_r, sizeof(int)));
+    cudaSafeCall(cudaMalloc((void **)&d_P, N * D * sizeof(P[0])));
+    cudaSafeCall(cudaMemcpy(d_r, &r, sizeof(int), cudaMemcpyHostToDevice));
+    cudaSafeCall(cudaMemcpy(d_P, P, N * D * sizeof(P[0]), cudaMemcpyHostToDevice));
+#if 0
+    skyline_kernel_1d<<<grid_1d, block_1d>>>(d_P, d_s, d_r, N, D);
+    cudaCheckError();
+#else
+    init_kernel<<<grid_1d, block_1d>>>(d_s, N);
+    cudaCheckError();
+    skyline_kernel<<<grid_2d, block_2d>>>(d_P, d_s, N, D);
+    cudaCheckError();
+    sum_kernel<<<grid_1d, block_1d>>>(d_s, d_r, N);
+    cudaCheckError();
+#endif
+    /* Copio indietro i valori */
+    cudaSafeCall(cudaMemcpy(s, d_s, N * sizeof(s[0]), cudaMemcpyDeviceToHost));
+    cudaSafeCall(cudaMemcpy(&r, d_r, sizeof(int), cudaMemcpyDeviceToHost));
+    cudaSafeCall(cudaFree(d_s));
+    cudaSafeCall(cudaFree(d_r));
+    cudaSafeCall(cudaFree(d_P));
     return r;
 }
 

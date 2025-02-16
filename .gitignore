@@ -1,2 +1,6 @@
 datasets/
 output/
+.vscode/
+src/cuda-skyline
+src/skyline
+src/omp-skyline
