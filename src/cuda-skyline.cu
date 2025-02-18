@@ -133,14 +133,20 @@ __device__ int dominates(const float *p, const float *q, int D)
     return 0;
 }
 
+/**
+ * CUDA kernel to compute the skyline of points in a 1D space.
+ *
+ * @param d_P Pointer to the array of points in device memory.
+ * @param d_s Pointer to the array in device memory where the skyline results will be stored.
+ * @param d_r Pointer to the variable in device memory where number of found points will be stored.
+ * @param N The number of points in the array.
+ * @param D The number of dimensions for each point.
+ */
 __global__ void skyline_kernel_1d(float *d_P, int *d_s, int *d_r, int N, int D)
 {
     const int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx < N)
     {
-        d_s[idx] = 1;
-        __syncthreads();
-
         for (int j = 0; j < N; j++)
         {
             if (dominates(&(d_P[j * D]), &(d_P[idx * D]), D))
@@ -153,6 +159,14 @@ __global__ void skyline_kernel_1d(float *d_P, int *d_s, int *d_r, int N, int D)
     }
 }
 
+/**
+ * CUDA kernel to initialize the array.
+ *
+ * This kernel initializes the elements of an array `d_s` of size `N` with value 1.
+ *
+ * @param d_s Pointer to the device array to be initialized.
+ * @param N The number of elements in the array.
+ */
 __global__ void init_kernel(int *d_s, int N)
 {
     const int idx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -162,6 +176,14 @@ __global__ void init_kernel(int *d_s, int N)
     }
 }
 
+/**
+ * CUDA kernel to compute the skyline of points in a 1D space.
+ *
+ * @param d_P Pointer to the array of points in device memory.
+ * @param d_s Pointer to the array in device memory where the skyline results will be stored.
+ * @param N The number of points in the array.
+ * @param D The number of dimensions for each point.
+ */
 __global__ void skyline_kernel(float *d_P, int *d_s, int N, int D)
 {
     const int idx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -175,6 +197,13 @@ __global__ void skyline_kernel(float *d_P, int *d_s, int N, int D)
     }
 }
 
+/**
+ * CUDA kernel to compute the sum of the elements of an array.
+ *
+ * @param d_s Pointer to the array to sum.
+ * @param d_r Pointer to the variable where the result will be stored.
+ * @param N The number of elements in the array.
+ */
 __global__ void sum_kernel(int *d_s, int *d_r, int N)
 {
     __shared__ int temp[BLKDIM_1D];
@@ -209,7 +238,7 @@ int skyline(const points_t *points, int *s)
     const int D = points->D;
     const int N = points->N;
     const float *P = points->P;
-#if 0
+#if 0 // 1 to test 1d kernel
     int r = N;
 #else
     int r = 0;
@@ -227,7 +256,9 @@ int skyline(const points_t *points, int *s)
     cudaSafeCall(cudaMalloc((void **)&d_P, N * D * sizeof(P[0])));
     cudaSafeCall(cudaMemcpy(d_r, &r, sizeof(int), cudaMemcpyHostToDevice));
     cudaSafeCall(cudaMemcpy(d_P, P, N * D * sizeof(P[0]), cudaMemcpyHostToDevice));
-#if 0
+#if 0 // 1 to test 1d kernel
+    init_kernel<<<grid_1d, block_1d>>>(d_s, N);
+    cudaCheckError();
     skyline_kernel_1d<<<grid_1d, block_1d>>>(d_P, d_s, d_r, N, D);
     cudaCheckError();
 #else
