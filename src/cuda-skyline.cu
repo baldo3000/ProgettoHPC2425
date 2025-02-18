@@ -2,26 +2,12 @@
  *
  * cuda-skyline.cu - Cuda implementaiton of the skyline operator
  *
- * Copyright (C) 2024 Andrea Baldazzi
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Andrea Baldazzi 0001071149
  *
  * --------------------------------------------------------------------------
  *
  * Questo programma calcola lo skyline di un insieme di punti in D
- * dimensioni letti da standard input. Per una descrizione completa
- * si veda la specifica del progetto sulla piattaforma "Virtuale".
+ * dimensioni letti da standard input.
  *
  * Per compilare:
  *
