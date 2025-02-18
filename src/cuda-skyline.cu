@@ -209,7 +209,11 @@ int skyline(const points_t *points, int *s)
     const int D = points->D;
     const int N = points->N;
     const float *P = points->P;
+#if 0
+    int r = N;
+#else
     int r = 0;
+#endif
 
     dim3 block_1d(BLKDIM_1D);
     dim3 grid_1d((N + BLKDIM_1D - 1) / BLKDIM_1D);

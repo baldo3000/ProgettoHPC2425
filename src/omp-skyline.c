@@ -143,7 +143,6 @@ int skyline(const points_t *points, int *s)
     const float *P = points->P;
     int r = N;
 
-// #pragma omp parallel for default(none) shared(s, N)
 #pragma omp parallel default(none) shared(s, N, D, P, r)
     {
 #pragma omp for
